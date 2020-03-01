@@ -115,7 +115,7 @@ class MainClass extends PluginBase implements Listener{
                     }
 					$player->setDataFlag(self::DATA_FLAGS, self::DATA_FLAG_ACTION, true);
 					$player->startAction = $player->server->getTick();
-				}
+				
 			$this->pearlLog[$ep->getId()] = $p->getName();
 		}
 	}
