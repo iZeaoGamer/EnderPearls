@@ -32,11 +32,15 @@ use pocketmine\nbt\tag\DoubleTag;
 use pocketmine\nbt\tag\FloatTag;
 use pocketmine\nbt\tag\ShortTag;
 use pocketmine\nbt\tag\ByteTag;
+use pocketmine\event\entity\ProjectileLaunchEvent;
 
 use pocketmine\entity\Entity;
+use pocketmine\entity\Projectile;
+use pocketmine\entity\EnderPearl;
 
 use pocketmine\Player;
 
+use pocketmine\level\sound\LaunchSound;
 use pocketmine\level\sound\EndermanTeleportSound;
 
 use pocketmine\item\Item;
@@ -44,6 +48,7 @@ use pocketmine\item\Item;
 class MainClass extends PluginBase implements Listener{
 
 	public $pearlLog = [];
+        public $lastEnderPearlUse = 0;
 
 	public function onEnable(){
 		$this->getServer()->getPluginManager()->registerEvents($this,$this);
@@ -52,7 +57,7 @@ class MainClass extends PluginBase implements Listener{
 		if(!file_exists($this->getDataFolder() . "config.yml")){
 			$this->config = new Config($this->getDataFolder() . "config.yml", Config::YAML, [
 				"enderpearl-sound" => true,
-				"enderpearl-id" => 378,
+				"enderpearl-id" => 368,
 				"change-item-name" => true,
 				"change-name-to" => "&dEnderpearl",
 				"use-damage" => 4
@@ -66,36 +71,51 @@ class MainClass extends PluginBase implements Listener{
 	public function onInteract(PlayerInteractEvent $e){
 		$p = $e->getPlayer();
 		$i = $e->getItem();
+		$player = $p;
 		if($i->getId() == $this->config->get("enderpearl-id")){
 			if($i->getId() == 332) $e->setCancelled();
-			$nbt = new CompoundTag ("",[ 
-				"Pos" => new ListTag ("Pos",[ 
-					new DoubleTag ("", $p->getX()),
-					new DoubleTag ("", $p->getY() + $p->getEyeHeight ()),
-					new DoubleTag ("", $p->getZ()) 
-				] ),
-				"Motion" => new ListTag ("Motion",[ 
-					new DoubleTag("", - \sin($p->yaw / 180 * M_PI)*\cos($p->pitch / 180 * M_PI)),
-					new DoubleTag("", - \sin ( $p->pitch / 180 * M_PI ) ),
-					new DoubleTag("",\cos($p->yaw / 180 * M_PI)*\cos($p->pitch / 180 * M_PI )) 
-				]),
-				"Rotation" => new ListTag("Rotation",[ 
-					new FloatTag("",$p->yaw),
-					new FloatTag("",$p->pitch) 
-				]),
-				"Health" => new ShortTag("Health", 5),
-				"Item" => new CompoundTag("Item", [
-					"id" => new ShortTag("id", $i->getId()),
-					"Damage" => new ShortTag("Damage", $i->getDamage()),
-					"Count" => new ByteTag("Count", 1)
-				]),
-				"PickupDelay" => new ShortTag("PickupDelay", "1") 
-			]);
-			$f = 1;
-			$ep = Entity::createEntity("Item",$p->chunk,$nbt,$p);
-			$ep->setMotion($ep->getMotion()->multiply($f));
-			$ep->spawnToAll();
-			$p->getInventory()->removeItem(Item::get($i->getId(),$i->getDamage(),1));
+			$nbt = new CompoundTag("", [
+                        "Pos" => new ListTag("Pos", [
+                            new DoubleTag("", $player->x),
+                            new DoubleTag("", $player->y + $this->getEyeHeight()),
+                            new DoubleTag("", $player->z)
+                        ]),
+                        "Motion" => new ListTag("Motion", [
+                            new DoubleTag("", -sin($player->yaw / 180 * M_PI) * cos($player->pitch / 180 * M_PI)),
+                            new DoubleTag("", -sin($player->pitch / 180 * M_PI)),
+                            new DoubleTag("", cos($player->yaw / 180 * M_PI) * cos($player->pitch / 180 * M_PI))
+                        ]),
+                        "Rotation" => new ListTag("Rotation", [
+                            new FloatTag("", $player->yaw),
+                            new FloatTag("", $player->pitch)
+                        ])
+                    ]);
+			if(floor(($time = microtime(true)) - $this->lastEnderPearlUse) >= 1) {
+				$reduce = true;
+                                $f = 1.1;
+                                $entity = Entity::createEntity("EnderPearl", $player->getLevel(), $nbt, $this);
+                                $entity->setMotion($entity->getMotion()->multiply($f));
+                                $this->getServer()->getPluginManager()->callEvent($ev = new ProjectileLaunchEvent($entity));
+                                if ($ev->isCancelled()) {
+                                    $entity->kill();
+                                } else {
+                                    $this->lastEnderPearlUse = $time;
+                                }
+			}
+                            
+                
+                    if($entity instanceof Projectile and $entity->isAlive()){
+                        if($reduce and $player->isSurvival()){
+				$item = $i;
+                            $item->setCount($item->getCount() - 1);
+                            $player->inventory->setItemInHand($item->getCount() > 0 ? $item : Item::get(Item::AIR));
+                        }
+                        $entity->spawnToAll();
+                        $player->level->addSound(new LaunchSound($player), $player->getViewers());
+                    }
+					$player->setDataFlag(self::DATA_FLAGS, self::DATA_FLAG_ACTION, true);
+					$player->startAction = $player->server->getTick();
+				}
 			$this->pearlLog[$ep->getId()] = $p->getName();
 		}
 	}
